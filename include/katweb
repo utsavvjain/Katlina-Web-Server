@@ -1,0 +1,59 @@
+#include<map>
+#include<iostream>
+#include <functional>
+using namespace std;
+namespace kat_web
+{
+typedef struct KW_Request
+{
+char *method;
+char *resource;
+char isClientSideTechnologyResource;
+char *mimeType;
+int dataCount;
+char **data;
+}REQUEST;	
+
+class Request;
+class Response;
+class Katlina
+{
+private : 
+int portNumber;
+map<string,function<void(Request &,Response &)>> mappings;
+friend class Request;
+public : 
+Katlina(int);
+void start();
+void onRequest(string,std::function<void(Request &,Response &)>);
+};
+class Request 
+{
+private : 
+map<string,int> intData;
+map<string,string> queryKeyValuePairs;
+int clientSocketDescriptor;
+REQUEST *request;
+friend class Katlina;
+Katlina kat;
+public : 
+Request(REQUEST *request,int clientSocketDescriptor,Katlina &kat) : request(request),clientSocketDescriptor(clientSocketDescriptor),kat(kat){};
+string getMethodType();
+string getResource();
+void loadQueryString(int,char **);
+string get(string);
+void setInt(string,int);
+int getInt(string);
+void forward(string);
+};
+class Response 
+{
+private : 
+bool headerSent;
+int clientSocketDescriptor;
+public : 
+Response(int clientSocketDescriptor):headerSent(false),clientSocketDescriptor(clientSocketDescriptor){};
+void write(string data);
+void close();
+};
+}

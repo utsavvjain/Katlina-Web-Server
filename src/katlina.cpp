@@ -1,13 +1,14 @@
 #include<stdio.h>
 #include<windows.h>
 #include<string.h>
-typedef struct Request
-{
-char *method;
-char *resource;
-char isClientSideTechnologyResource;
-char *mimeType;
-}REQUEST;
+#include<katweb>
+#include<iostream>
+#include<map>
+#include<katutil>
+using namespace std;
+using namespace kat_web;
+using namespace kat_util;
+
 bool serveResource(REQUEST *request,const char *resource,int clientSocketDescriptor)
 {
 char header[1024];
@@ -18,7 +19,7 @@ if(!f) return false; // not exists
 fseek(f,0,SEEK_END);
 contentLength=ftell(f);
 fseek(f,0,SEEK_SET);
-strcpy(header,"HTTP/1.1 200 OK\nConnection: Keep-Alive\nKeep-Alive: timeout=5, max=1000\n");
+strcpy(header,"HTTP/1.1 200 OK\nConnection: close\n");
 char contentType[1024];
 if(!request->mimeType) strcat(header,"Content-Type : text/html\n");
 else
@@ -41,7 +42,6 @@ send(clientSocketDescriptor,resourceData,chunkSize,0);
 byteSent+=chunkSize;
 }
 fclose(f);
-printf("Serving resource /%s\n",(request->resource)?request->resource:"");
 return true;
 }
 void sendError(int clientSocketDescriptor,int errorCode,REQUEST *request)
@@ -59,7 +59,7 @@ send(clientSocketDescriptor,header,strlen(header),0);
 send(clientSocketDescriptor,response,strlen(response),0);
 }
 }
-char *getMIMEType(char *resource)
+char *getMIMEType(const char *resource)
 {
 char *mimeType=NULL;
 int len=strlen(resource);
@@ -104,19 +104,49 @@ char isClientSideResourceTechnology(char *resource)
 {
 return 'Y'; //this will have to be changed later
 }
-REQUEST *parseRequest(char *bytes)
+void parseResourceNameAndQS(const char *bytes,REQUEST *request)
 {
 int i,j;
-char method[11];
 char resource[1001];
-for(i=0;bytes[i]!=' ';i++) method[i]=bytes[i];
-method[i]='\0';
-i+=2; // skipped resource name "/"
-for(j=0;bytes[i]!=' ';i++,j++) resource[j]=bytes[i];
+char **data;
+int dataCount=0;
+for(j=0,i=0;bytes[i]!=' ' && bytes[i]!='?';i++,j++) resource[j]=bytes[i];
 resource[j]='\0';
-REQUEST *request=(REQUEST *)malloc(sizeof(REQUEST));
-request->method=(char *)malloc(sizeof(char)*strlen(method)+1);
-strcpy(request->method,method);
+if(bytes[i]=='?')
+{
+i++;
+int si=i; // 1st data index
+dataCount=1;
+while(bytes[i]!=' ' && bytes[i]!='\0') 
+{
+if(bytes[i]=='&') dataCount++;
+i++;
+}
+data=(char **)malloc(sizeof(char *)*dataCount);
+int *pc=(int *)malloc(sizeof(int )*dataCount);
+i=si;
+int j=0;
+while(bytes[i]!=' ' && bytes[i]!='\0')
+{
+if(bytes[i]=='&')pc[j++]=i;
+i++;
+}
+pc[j]=i;
+i=si;
+j=0;
+int howManyToPick;
+while(j<dataCount)
+{
+howManyToPick=pc[j]-i;
+data[j]=(char *)malloc(sizeof(char)*(howManyToPick+1));
+strncpy(data[j],bytes+i,howManyToPick);
+data[j][howManyToPick]='\0';
+i=pc[j]+1;
+j++;
+}
+}//QString exists
+request->dataCount=dataCount;
+request->data=data;
 if(resource[0]=='\0')
 {
 request->resource=NULL;
@@ -129,10 +159,26 @@ request->resource=(char *)malloc(sizeof(char)*strlen(resource)+1);
 strcpy(request->resource,resource);
 request->isClientSideTechnologyResource=isClientSideResourceTechnology(resource);
 request->mimeType=getMIMEType(resource);
+if(request->mimeType==NULL) request->isClientSideTechnologyResource='N';
 }
+}
+REQUEST *parseRequest(char *bytes)
+{
+REQUEST *request=(REQUEST *)malloc(sizeof(REQUEST));
+int i,j;
+char method[11];
+for(i=0;bytes[i]!=' ';i++) method[i]=bytes[i];
+method[i]='\0';
+i+=2; // skipped resource name "/"
+if(strcmp(method,"GET")==0)
+{
+parseResourceNameAndQS(bytes+i,request);
+} // method is GET type
+request->method=(char *)malloc(sizeof(char)*strlen(method)+1);
+strcpy(request->method,method);
 return request;
 }
-int main()
+void Katlina::start()
 {
 int i;
 char requestBuffer[8192]; 
@@ -147,20 +193,20 @@ serverSocketDescriptor=socket(AF_INET,SOCK_STREAM,0);
 if(serverSocketDescriptor<0)
 {
 printf("Unable to create socket\n");
-return 0;
+return;
 }
 serverSocketInformation.sin_family=AF_INET;
-serverSocketInformation.sin_port=htons(8081);
+serverSocketInformation.sin_port=htons(this->portNumber);
 serverSocketInformation.sin_addr.s_addr=htonl(INADDR_ANY);
 successCode=bind(serverSocketDescriptor,(struct sockaddr *)&serverSocketInformation,sizeof(serverSocketInformation));
 if(successCode<0)
 {
 printf("Unable to bind socket to port 8081");
 WSACleanup();
-return 0;
+return;
 }
 listen(serverSocketDescriptor,10);
-printf("Katlina is ready to listen HTTP requests on port 8081\n");
+printf("Katlina is ready to listen HTTP requests on port %d\n",this->portNumber);
 len=sizeof(serverSocketInformation);
 while(1)
 {
@@ -170,7 +216,7 @@ if(clientSocketDescriptor<0)
 printf("Unable to accept client connection\n");
 closesocket(serverSocketDescriptor);
 WSACleanup();
-return 0;
+return;
 }
 bytesExtracted=recv(clientSocketDescriptor,requestBuffer,sizeof(requestBuffer),0);
 if(bytesExtracted<0) //error
@@ -185,28 +231,143 @@ else
 {
 requestBuffer[bytesExtracted]='\0';
 REQUEST *request=parseRequest(requestBuffer);
-printf("Request arrived : %s %s %s\n",request->method,request->resource,request->mimeType);
 if(request->isClientSideTechnologyResource=='Y')
 {
-if(!request->resource)
-{
-if(!serveResource(request,"index.html",clientSocketDescriptor)) 
+if(!request->resource) {
+if(!serveResource(request,"index.html",clientSocketDescriptor))  
 {
 if(!serveResource(request,"index.htm",clientSocketDescriptor)) sendError(clientSocketDescriptor,404,request);
 }
 }
-else
+else 
 {
 if(!serveResource(request,request->resource,clientSocketDescriptor)) sendError(clientSocketDescriptor,404,request);
 }
 }
 else 
 {
+if(this->mappings.find(request->resource)==this->mappings.end()) sendError(clientSocketDescriptor,404,request);
+else
+{
+function<void(Request &,Response &)> callback=this->mappings[request->resource];
+Request req(request,clientSocketDescriptor,*this);
+Response res(clientSocketDescriptor);
+if(request->dataCount>0) req.loadQueryString(request->dataCount,request->data);
+callback(req,res);
+if(request->dataCount>0) 
+{
+for(int k=0;k<request->dataCount;k++) free(request->data[k]);
+free(request->data);
+}
+}
 //what to do is yet to be decided
 }
 }
 closesocket(clientSocketDescriptor);
 }
 closesocket(serverSocketDescriptor);
-return 0;
+return;
+}
+Katlina::Katlina(int portNumber){
+this->portNumber=portNumber;
+}
+void Katlina::onRequest(string url,std::function<void(Request &,Response &)> callback)
+{
+this->mappings[url.substr(1)]=callback;
+}
+void Request::loadQueryString(int dataCount,char **data)
+{
+char key[1024],value[1024];
+int i,j,kvLen;
+char *kvPair;
+for(i=0;i<dataCount;i++)
+{
+kvPair=data[i];
+kvLen=strlen(kvPair);
+j=0;
+while(kvPair[j]!='=' && j<kvLen) j++;
+if(j==kvLen) break;
+strncpy(key,kvPair,j);
+key[j]='\0';
+j++;
+strncpy(value,kvPair+j,kvLen-j);
+value[kvLen-j]='\0';
+queryKeyValuePairs.insert({URLEncoder::decode(key),URLEncoder::decode(value)});
+}
+}
+string Request::get(string param)
+{
+if(queryKeyValuePairs.find(param)==queryKeyValuePairs.end()) return "";
+return queryKeyValuePairs[param];
+}
+string Request::getMethodType()
+{
+return this->request->method;
+}
+string Request::getResource()
+{
+return this->request->resource;
+}
+void Request::forward(string resourceName)
+{
+const char *resource=resourceName.c_str();
+REQUEST *request=(REQUEST *)malloc(sizeof(REQUEST));
+parseResourceNameAndQS(resource,request);
+if(request->isClientSideTechnologyResource=='Y')
+{
+if(!serveResource(request,request->resource,this->clientSocketDescriptor)) sendError(clientSocketDescriptor,404,request);
+}
+else 
+{
+// to be refactored
+if(kat.mappings.find(request->resource)==kat.mappings.end()) sendError(clientSocketDescriptor,404,request);
+else
+{
+function<void(Request &,Response &)> callback=kat.mappings[request->resource];
+Request req(request,clientSocketDescriptor,kat);
+Response res(clientSocketDescriptor);
+req.intData=this->intData;
+if(request->dataCount>0) req.loadQueryString(request->dataCount,request->data);
+callback(req,res);
+if(request->dataCount>0) 
+{
+for(int k=0;k<request->dataCount;k++) free(request->data[k]);
+free(request->data);
+}
+}
+}
+}
+int Request::getInt(string key)
+{
+return this->intData[key];
+}
+void Request::setInt(string key,int value)
+{
+this->intData[key]=value;
+}
+
+void Response::close()
+{
+closesocket(this->clientSocketDescriptor);
+}
+
+void Response::write(string data)
+{
+char header[1024];
+if(!this->headerSent)
+{
+strcpy(header,"HTTP/1.1 200 OK\nConnection: close\nContent-Type : text/html\n\n");
+send(this->clientSocketDescriptor,header,strlen(header),0);
+this->headerSent=true;
+}
+const char *dataArray=data.c_str();
+int contentLength=strlen(dataArray);
+int chunkSize=1024;
+int byteSent=0;
+while(byteSent<contentLength)
+{
+if((contentLength-byteSent)<chunkSize) chunkSize=contentLength-byteSent;
+send(clientSocketDescriptor,dataArray+byteSent,chunkSize,0);
+byteSent+=chunkSize;
+}
 }

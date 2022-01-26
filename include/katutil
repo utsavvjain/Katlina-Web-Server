@@ -1,0 +1,18 @@
+#include<map>
+#include<iostream>
+#include <functional>
+using namespace std;
+namespace kat_util
+{
+class URLEncoder
+{
+public : 
+static string encode(string);
+static string decode(string);
+};
+class StringUtils 
+{
+public :
+static void replaceAll(string &,string,string); // orignal string, text to be replaced , text to be replaced with
+};
+}

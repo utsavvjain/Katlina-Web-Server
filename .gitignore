@@ -1,7 +1,10 @@
-wrappers
-documentation.html
-image.jpeg
-images
-test.css
-index.html
-favicon.ico
+#html files
+*.html
+object files 
+*.o
+#exe files
+*.exe
+#batch files
+*.bat
+#library
+*.lib
