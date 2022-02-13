@@ -1,0 +1,15 @@
+#ifndef __KST2C
+#define __KST2C 748578
+#include<map>
+#include<iostream>
+#include <functional>
+using namespace std;
+namespace kat_kst2c
+{
+class KST2C
+{
+public : 
+static void generate();
+};
+}
+#endif

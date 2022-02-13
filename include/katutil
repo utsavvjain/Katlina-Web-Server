@@ -1,3 +1,5 @@
+#ifndef __KATUTIL
+#define __KATUTIL 1854
 #include<map>
 #include<iostream>
 #include <functional>
@@ -14,5 +16,7 @@ class StringUtils
 {
 public :
 static void replaceAll(string &,string,string); // orignal string, text to be replaced , text to be replaced with
+static bool endsWith(const string& , const string& );
 };
 }
+#endif

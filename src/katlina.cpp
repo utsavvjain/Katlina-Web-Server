@@ -3,12 +3,12 @@
 #include<string.h>
 #include<katweb>
 #include<iostream>
+#include<fstream>
 #include<map>
 #include<katutil>
 using namespace std;
 using namespace kat_web;
 using namespace kat_util;
-
 bool serveResource(REQUEST *request,const char *resource,int clientSocketDescriptor)
 {
 char header[1024];
@@ -71,6 +71,12 @@ if(stricmp(resource+dotIndex+1,"css")==0)
 {
 mimeType=(char *)malloc(sizeof(char)*9);
 strcpy(mimeType,"text/css");
+}
+//katlina server side template
+if(stricmp(resource+dotIndex+1,"kst")==0)
+{
+mimeType=(char *)malloc(sizeof(char)*10);
+strcpy(mimeType,"text/kst");
 }
 else if(stricmp(resource+dotIndex+1,"js")==0)
 {
@@ -160,6 +166,12 @@ strcpy(request->resource,resource);
 request->isClientSideTechnologyResource=isClientSideResourceTechnology(resource);
 request->mimeType=getMIMEType(resource);
 if(request->mimeType==NULL) request->isClientSideTechnologyResource='N';
+if(stricmp(request->mimeType,"text/kst")==0) 
+{
+request->isClientSideTechnologyResource='N';
+request->isKST=true;
+}
+else request->isKST=false;
 }
 }
 REQUEST *parseRequest(char *bytes)
@@ -180,8 +192,7 @@ return request;
 }
 void Katlina::start()
 {
-int i;
-char requestBuffer[8192]; 
+int i;char requestBuffer[8192]; 
 int bytesExtracted,len,successCode;
 WORD ver;
 ver=MAKEWORD(1,1);
@@ -259,6 +270,7 @@ if(request->dataCount>0)
 for(int k=0;k<request->dataCount;k++) free(request->data[k]);
 free(request->data);
 }
+if(req.forwardedToResource.length()>0) req._forward();
 }
 //what to do is yet to be decided
 }
@@ -310,8 +322,13 @@ return this->request->resource;
 }
 void Request::forward(string resourceName)
 {
-const char *resource=resourceName.c_str();
+this->forwardedToResource=resourceName;
+}
+void Request::_forward()
+{
+const char *resource=forwardedToResource.c_str();
 REQUEST *request=(REQUEST *)malloc(sizeof(REQUEST));
+request->isForwarded=true;
 parseResourceNameAndQS(resource,request);
 if(request->isClientSideTechnologyResource=='Y')
 {
@@ -319,7 +336,6 @@ if(!serveResource(request,request->resource,this->clientSocketDescriptor)) sendE
 }
 else 
 {
-// to be refactored
 if(kat.mappings.find(request->resource)==kat.mappings.end()) sendError(clientSocketDescriptor,404,request);
 else
 {
@@ -327,6 +343,7 @@ function<void(Request &,Response &)> callback=kat.mappings[request->resource];
 Request req(request,clientSocketDescriptor,kat);
 Response res(clientSocketDescriptor);
 req.intData=this->intData;
+req.strData=this->strData;
 if(request->dataCount>0) req.loadQueryString(request->dataCount,request->data);
 callback(req,res);
 if(request->dataCount>0) 
@@ -341,11 +358,21 @@ int Request::getInt(string key)
 {
 return this->intData[key];
 }
+int Request::isForwarded()
+{
+return this->request->isForwarded;
+}
 void Request::setInt(string key,int value)
 {
 this->intData[key]=value;
 }
-
+void Request::setValue(string key,string value){
+this->strData[key]=value;
+}
+string Request::getValue(string key)
+{
+return this->strData[key];
+}
 void Response::close()
 {
 closesocket(this->clientSocketDescriptor);

@@ -1,3 +1,5 @@
+#ifndef __KATWEB
+#define __KATWEB 45785
 #include<map>
 #include<iostream>
 #include <functional>
@@ -10,6 +12,8 @@ char *method;
 char *resource;
 char isClientSideTechnologyResource;
 char *mimeType;
+int isKST;
+int isForwarded;
 int dataCount;
 char **data;
 }REQUEST;	
@@ -32,12 +36,15 @@ class Request
 private : 
 map<string,int> intData;
 map<string,string> queryKeyValuePairs;
+map<string,string> strData;
 int clientSocketDescriptor;
 REQUEST *request;
 friend class Katlina;
 Katlina kat;
+string forwardedToResource;
+void _forward();
 public : 
-Request(REQUEST *request,int clientSocketDescriptor,Katlina &kat) : request(request),clientSocketDescriptor(clientSocketDescriptor),kat(kat){};
+Request(REQUEST *request,int clientSocketDescriptor,Katlina &kat) : request(request),clientSocketDescriptor(clientSocketDescriptor),kat(kat),forwardedToResource(""){};
 string getMethodType();
 string getResource();
 void loadQueryString(int,char **);
@@ -45,6 +52,9 @@ string get(string);
 void setInt(string,int);
 int getInt(string);
 void forward(string);
+int isForwarded();
+void setValue(string key,string value);
+string getValue(string key);
 };
 class Response 
 {
@@ -57,3 +67,4 @@ void write(string data);
 void close();
 };
 }
+#endif
