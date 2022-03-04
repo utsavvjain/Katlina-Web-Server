@@ -2,7 +2,12 @@
 #define __KATWEB 45785
 #include<map>
 #include<iostream>
+#include<vector>
 #include <functional>
+#include<thread>
+#include<katutil>
+#include<set>
+using namespace kat_util;
 using namespace std;
 namespace kat_web
 {
@@ -24,12 +29,21 @@ class Katlina
 {
 private : 
 int portNumber;
-map<string,function<void(Request &,Response &)>> mappings;
 friend class Request;
 public : 
+static volatile bool isServerRunning;
+static set<string> discardedThreadIds;
+static map<string,function<void(Request &,Response &)>> mappings;
+static map<string,ThreadManager<void (*)(int,string),int>*> threads;
 Katlina(int);
+Katlina(Katlina &&)=delete;
+Katlina& operator=(Katlina &&)=delete;
+Katlina(const Katlina &)=delete;
+Katlina& operator=(const Katlina &)=delete;
 void start();
 void onRequest(string,std::function<void(Request &,Response &)>);
+static void requestHandler(int,string);
+static void threadDestroyer();
 };
 class Request 
 {
@@ -40,11 +54,11 @@ map<string,string> strData;
 int clientSocketDescriptor;
 REQUEST *request;
 friend class Katlina;
-Katlina kat;
+Katlina *kat;
 string forwardedToResource;
 void _forward();
 public : 
-Request(REQUEST *request,int clientSocketDescriptor,Katlina &kat) : request(request),clientSocketDescriptor(clientSocketDescriptor),kat(kat),forwardedToResource(""){};
+Request(REQUEST *request,int clientSocketDescriptor) : request(request),clientSocketDescriptor(clientSocketDescriptor),forwardedToResource(""){};
 string getMethodType();
 string getResource();
 void loadQueryString(int,char **);

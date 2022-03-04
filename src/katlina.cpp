@@ -5,10 +5,15 @@
 #include<iostream>
 #include<fstream>
 #include<map>
-#include<katutil>
+#include<condition_variable>
+
 using namespace std;
 using namespace kat_web;
 using namespace kat_util;
+map<string,function<void(Request &,Response &)>> Katlina::mappings;
+map<string,ThreadManager<void (*)(int,string),int> *> Katlina::threads;
+set<string> Katlina::discardedThreadIds;
+volatile bool Katlina::isServerRunning=true;
 bool serveResource(REQUEST *request,const char *resource,int clientSocketDescriptor)
 {
 char header[1024];
@@ -218,10 +223,14 @@ return;
 }
 listen(serverSocketDescriptor,10);
 printf("Katlina is ready to listen HTTP requests on port %d\n",this->portNumber);
+this->isServerRunning=true;
 len=sizeof(serverSocketInformation);
-while(1)
+string threadId;
+thread destroyerThread(threadDestroyer);
+while(isServerRunning)
 {
 clientSocketDescriptor=accept(serverSocketDescriptor,(struct sockaddr *)&clientSocketInformation,&len);
+if(!isServerRunning) break;
 if(clientSocketDescriptor<0)
 {
 printf("Unable to accept client connection\n");
@@ -229,63 +238,33 @@ closesocket(serverSocketDescriptor);
 WSACleanup();
 return;
 }
-bytesExtracted=recv(clientSocketDescriptor,requestBuffer,sizeof(requestBuffer),0);
-if(bytesExtracted<0) //error
+ThreadManager<void (*)(int,string),int> *t=new ThreadManager<void (*)(int,string),int>(this->requestHandler,clientSocketDescriptor);
+threads.insert({t->getId(),t});
+t->start();
+}
+ThreadManager<void (*)(int,string),int> *thd;
+set<string> threadIds;
+for(auto it=threads.begin();it!=threads.end();it++) threadIds.insert(it->first);
+for(string threadId:threadIds) 
 {
-//what to do yet to be decide
-}
-else if(bytesExtracted==0) 
+thd=threads[threadId];
+if(thd)
 {
-//what to do yet to be decide
-}
-else
-{
-requestBuffer[bytesExtracted]='\0';
-REQUEST *request=parseRequest(requestBuffer);
-if(request->isClientSideTechnologyResource=='Y')
-{
-if(!request->resource) {
-if(!serveResource(request,"index.html",clientSocketDescriptor))  
-{
-if(!serveResource(request,"index.htm",clientSocketDescriptor)) sendError(clientSocketDescriptor,404,request);
+delete thd;
+threads.erase(threadId);
 }
 }
-else 
-{
-if(!serveResource(request,request->resource,clientSocketDescriptor)) sendError(clientSocketDescriptor,404,request);
-}
-}
-else 
-{
-if(this->mappings.find(request->resource)==this->mappings.end()) sendError(clientSocketDescriptor,404,request);
-else
-{
-function<void(Request &,Response &)> callback=this->mappings[request->resource];
-Request req(request,clientSocketDescriptor,*this);
-Response res(clientSocketDescriptor);
-if(request->dataCount>0) req.loadQueryString(request->dataCount,request->data);
-callback(req,res);
-if(request->dataCount>0) 
-{
-for(int k=0;k<request->dataCount;k++) free(request->data[k]);
-free(request->data);
-}
-if(req.forwardedToResource.length()>0) req._forward();
-}
-//what to do is yet to be decided
-}
-}
-closesocket(clientSocketDescriptor);
-}
+destroyerThread.join();
 closesocket(serverSocketDescriptor);
 return;
 }
-Katlina::Katlina(int portNumber){
+Katlina::Katlina(int portNumber)
+{
 this->portNumber=portNumber;
 }
 void Katlina::onRequest(string url,std::function<void(Request &,Response &)> callback)
 {
-this->mappings[url.substr(1)]=callback;
+mappings[url.substr(1)]=callback;
 }
 void Request::loadQueryString(int dataCount,char **data)
 {
@@ -336,11 +315,11 @@ if(!serveResource(request,request->resource,this->clientSocketDescriptor)) sendE
 }
 else 
 {
-if(kat.mappings.find(request->resource)==kat.mappings.end()) sendError(clientSocketDescriptor,404,request);
+if(Katlina::mappings.find(request->resource)==Katlina::mappings.end()) sendError(clientSocketDescriptor,404,request);
 else
 {
-function<void(Request &,Response &)> callback=kat.mappings[request->resource];
-Request req(request,clientSocketDescriptor,kat);
+function<void(Request &,Response &)> callback=Katlina::mappings[request->resource];
+Request req(request,clientSocketDescriptor);
 Response res(clientSocketDescriptor);
 req.intData=this->intData;
 req.strData=this->strData;
@@ -396,5 +375,79 @@ while(byteSent<contentLength)
 if((contentLength-byteSent)<chunkSize) chunkSize=contentLength-byteSent;
 send(clientSocketDescriptor,dataArray+byteSent,chunkSize,0);
 byteSent+=chunkSize;
+}
+}
+void Katlina::requestHandler(int clientSocketDescriptor,string threadId)
+{
+int i;char requestBuffer[8192]; 
+int bytesExtracted,len,successCode;
+bytesExtracted=recv(clientSocketDescriptor,requestBuffer,sizeof(requestBuffer),0);
+if(stricmp(requestBuffer,"SHUTDOWN-KATLINA")==0)
+{
+cout<<"Shutting server down, Active threads : "<<threads.size()<<endl;
+isServerRunning=false;
+return;
+}
+if(bytesExtracted<0) //error
+{
+isServerRunning=false;
+}
+else if(bytesExtracted==0) 
+{
+isServerRunning=false;
+}
+else
+{
+requestBuffer[bytesExtracted]='\0';
+REQUEST *request=parseRequest(requestBuffer);
+if(request->isClientSideTechnologyResource=='Y')
+{
+if(!request->resource) {
+if(!serveResource(request,"index.html",clientSocketDescriptor))  
+{
+if(!serveResource(request,"index.htm",clientSocketDescriptor)) sendError(clientSocketDescriptor,404,request);
+}
+}
+else 
+{
+if(!serveResource(request,request->resource,clientSocketDescriptor)) sendError(clientSocketDescriptor,404,request);
+}
+}
+else 
+{
+if(mappings.find(request->resource)==mappings.end()) sendError(clientSocketDescriptor,404,request);
+else
+{
+function<void(Request &,Response &)> callback=mappings[request->resource];
+Request req(request,clientSocketDescriptor);
+Response res(clientSocketDescriptor);
+if(request->dataCount>0) req.loadQueryString(request->dataCount,request->data);
+callback(req,res);
+if(request->dataCount>0) 
+{
+for(int k=0;k<request->dataCount;k++) free(request->data[k]);
+free(request->data);
+}
+if(req.forwardedToResource.length()>0) req._forward();
+}
+}
+}
+closesocket(clientSocketDescriptor);
+discardedThreadIds.insert(threadId);
+}
+void Katlina::threadDestroyer()
+{
+while(isServerRunning)
+{
+if(discardedThreadIds.size()!=0)
+{
+ThreadManager<void (*)(int,string),int> *thd;
+for(auto it=threads.begin();it!=threads.end();it++)
+{
+thd=it->second;
+delete thd;
+threads.erase(it->first);
+}
+}
 }
 }

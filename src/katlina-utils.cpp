@@ -132,3 +132,39 @@ bool StringUtils::endsWith(const string& a, const string& b)
 if (b.size() > a.size()) return false;
 return std::equal(a.begin() + a.size() - b.size(), a.end(), b.begin());
 }
+string KSTUUID::generateUUID()
+{
+UUID uuid;
+UuidCreate(&uuid);
+char *str;
+UuidToStringA(&uuid, (RPC_CSTR*)&str);
+string uuidStr(str);
+RpcStringFreeA((RPC_CSTR*)&str);
+return uuidStr;
+}
+template<typename FunctionAddress,typename ...T1>
+ThreadManager<FunctionAddress,T1...>::~ThreadManager()
+{
+if(this->t) 
+{
+this->t->join();
+delete this->t;
+}
+}
+template<typename FunctionAddress,typename ...T1>
+void ThreadManager<FunctionAddress,T1...>::start()
+{
+threadStarter(index_sequence_for<T1...>());
+}
+template<typename FunctionAddress,typename ...T1>
+string ThreadManager<FunctionAddress,T1...>::getId()
+{
+return this->id;
+}
+template<typename FunctionAddress,typename ...T1>
+template<size_t ...sequence>
+void ThreadManager<FunctionAddress,T1...>::threadStarter(index_sequence<sequence ...>)
+{
+this->t=new thread(p2f,get<sequence>(this->args)...,id);
+}
+template class ThreadManager<void (*)(int,string),int>;

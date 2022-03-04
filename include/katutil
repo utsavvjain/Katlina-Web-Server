@@ -3,6 +3,10 @@
 #include<map>
 #include<iostream>
 #include <functional>
+#include<windows.h>
+#include<thread>	
+#include<tuple>
+#include<mutex>
 using namespace std;
 namespace kat_util
 {
@@ -18,5 +22,28 @@ public :
 static void replaceAll(string &,string,string); // orignal string, text to be replaced , text to be replaced with
 static bool endsWith(const string& , const string& );
 };
+class KSTUUID
+{
+public : 
+static string generateUUID();
+};
+template<typename FunctionAddr,typename ...T1>
+class ThreadManager
+{
+thread *t;
+FunctionAddr p2f;
+string id;
+tuple<T1...> args;
+template<size_t ...sequence>
+void threadStarter(index_sequence<sequence ...>);
+public : 
+ThreadManager(FunctionAddr p2f,T1... args) :p2f(p2f),id(KSTUUID::generateUUID()),args(args...),t(NULL){}
+ThreadManager(const ThreadManager<FunctionAddr,T1...> &)=delete;
+ThreadManager& operator=(const ThreadManager<FunctionAddr,T1...> &)=delete;
+~ThreadManager();
+void start();
+string getId();
+};
 }
+
 #endif
